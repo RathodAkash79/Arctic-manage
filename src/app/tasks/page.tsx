@@ -495,9 +495,14 @@ export default function TasksPage() {
 
             <div className="lg:col-span-3">
               {loading ? (
-                <div className="bg-white rounded-lg border border-slate-200 p-6 text-slate-500">Loading tasks...</div>
+                <div className="bg-white rounded-lg border border-slate-200 p-6 space-y-3">
+                  <div className="h-4 w-48 bg-slate-100 rounded animate-pulse" />
+                  <div className="h-4 w-full bg-slate-100 rounded animate-pulse" />
+                  <div className="h-4 w-5/6 bg-slate-100 rounded animate-pulse" />
+                  <div className="h-4 w-4/6 bg-slate-100 rounded animate-pulse" />
+                </div>
               ) : tasks.length === 0 ? (
-                <div className="bg-white rounded-lg border border-slate-200 p-6 text-slate-500">No tasks found.</div>
+                <div className="bg-white rounded-lg border border-slate-200 p-6 text-slate-500">No tasks assigned yet.</div>
               ) : viewMode === 'list' ? (
                 <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
                   <table className="w-full text-sm">

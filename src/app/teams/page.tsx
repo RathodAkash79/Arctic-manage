@@ -150,7 +150,11 @@ export default function TeamsPage() {
                 </div>
 
                 {loading ? (
-                  <div className="p-6 text-slate-500">Loading teams...</div>
+                  <div className="p-6 space-y-3">
+                    <div className="h-4 w-40 bg-slate-100 rounded animate-pulse" />
+                    <div className="h-4 w-full bg-slate-100 rounded animate-pulse" />
+                    <div className="h-4 w-4/6 bg-slate-100 rounded animate-pulse" />
+                  </div>
                 ) : teams.length === 0 ? (
                   <div className="p-6 text-slate-500">No teams created yet.</div>
                 ) : (

@@ -61,11 +61,10 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* Empty State for Phase 1 */}
         <div className="bg-white rounded-lg border border-slate-200 p-8 text-center shadow-sm">
-          <h2 className="text-lg font-semibold text-slate-900 mb-2">Dashboard</h2>
+          <h2 className="text-lg font-semibold text-slate-900 mb-2">Overview</h2>
           <p className="text-slate-500">
-            Welcome to Arctic Manage. Phase 1 authentication is complete. Additional features coming in subsequent phases.
+            Your live progress metrics will appear here as teams and tasks are added.
           </p>
         </div>
       </div>

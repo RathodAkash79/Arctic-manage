@@ -254,9 +254,14 @@ export default function UsersPage() {
                 </div>
 
                 {loading ? (
-                  <div className="p-6 text-slate-500">Loading users...</div>
+                  <div className="p-6 space-y-3">
+                    <div className="h-4 w-40 bg-slate-100 rounded animate-pulse" />
+                    <div className="h-4 w-full bg-slate-100 rounded animate-pulse" />
+                    <div className="h-4 w-5/6 bg-slate-100 rounded animate-pulse" />
+                    <div className="h-4 w-4/6 bg-slate-100 rounded animate-pulse" />
+                  </div>
                 ) : users.length === 0 ? (
-                  <div className="p-6 text-slate-500">No users found.</div>
+                  <div className="p-6 text-slate-500">No users added yet.</div>
                 ) : (
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm">
