@@ -3,9 +3,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { MainLayout } from '@/components/MainLayout';
 import { RoleGuard } from '@/components/RoleGuard';
-import { taskService, userService } from '@/lib/services';
-import { Task, User, UserRole } from '@/types';
+import { taskCommentService, taskService, userService } from '@/lib/services';
+import { Task, TaskComment, User, UserRole } from '@/types';
 import { useAuth } from '@/contexts/AuthContext';
+import { collection, onSnapshot, orderBy, query, where } from 'firebase/firestore';
+import { db } from '@/lib/firebase';
 
 const statusColumns: Array<{ key: Task['status']; label: string }> = [
   { key: 'todo', label: 'To Do' },
@@ -37,6 +39,49 @@ const getAssignableRoles = (creatorRole?: UserRole): UserRole[] => {
   return [];
 };
 
+const toMillis = (value: any): number => {
+  if (!value) {
+    return Date.now();
+  }
+  if (typeof value === 'number') {
+    return value;
+  }
+  if (value.toMillis) {
+    return value.toMillis();
+  }
+  return Date.now();
+};
+
+const normalizeTask = (data: any, id: string): Task => ({
+  id,
+  title: data.title,
+  description: data.description || '',
+  milestoneId: data.milestoneId,
+  teamId: data.teamId,
+  assignedTo: data.assignedTo,
+  assignedById: data.assignedById ?? null,
+  assignedByName: data.assignedByName || '',
+  assignedByRole: data.assignedByRole || 'trial_staff',
+  priority: data.priority,
+  status: data.status,
+  blockReason: data.blockReason ?? null,
+  createdBy: data.createdBy,
+  createdByName: data.createdByName || '',
+  createdByRole: data.createdByRole || 'trial_staff',
+  createdAt: toMillis(data.createdAt),
+  dueAt: toMillis(data.dueAt),
+});
+
+const normalizeComment = (data: any, id: string): TaskComment => ({
+  id,
+  userId: data.userId,
+  userName: data.userName || '',
+  userRole: data.userRole || 'trial_staff',
+  text: data.text || '',
+  timestamp: toMillis(data.timestamp),
+  type: data.type || 'comment',
+});
+
 export default function TasksPage() {
   const { user } = useAuth();
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -44,6 +89,13 @@ export default function TasksPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [viewMode, setViewMode] = useState<'kanban' | 'list'>('kanban');
+  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [comments, setComments] = useState<TaskComment[]>([]);
+  const [commentText, setCommentText] = useState('');
+  const [commentLoading, setCommentLoading] = useState(false);
+  const [statusLoading, setStatusLoading] = useState(false);
+  const [blockReason, setBlockReason] = useState('');
+  const [showBlockModal, setShowBlockModal] = useState(false);
   const [form, setForm] = useState({
     title: '',
     description: '',
@@ -57,39 +109,82 @@ export default function TasksPage() {
   const allowedAssigneeRoles = getAssignableRoles(user?.role);
   const allowTeamAssignment = user?.role === 'super_admin' || user?.role === 'admin';
 
-  const loadData = async () => {
-    if (!user) {
-      return;
-    }
-
+  const loadUsers = async () => {
     try {
-      setLoading(true);
-      setError('');
-
-      const userDataPromise = userService.list();
-      let taskData: Task[] = [];
-
-      if (user.role === 'super_admin') {
-        taskData = await taskService.list();
-      } else if (user.teamId) {
-        taskData = await taskService.listByTeam(user.teamId);
-      } else {
-        taskData = [];
-      }
-
-      const userData = await userDataPromise;
-      setTasks(taskData);
+      const userData = await userService.list();
       setUsers(userData);
     } catch (err: any) {
-      setError(err.message || 'Failed to load tasks');
-    } finally {
-      setLoading(false);
+      setError(err.message || 'Failed to load users');
     }
   };
 
   useEffect(() => {
-    void loadData();
+    if (!user) {
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+    void loadUsers();
+
+    const tasksRef = collection(db, 'tasks');
+    const tasksQuery = user.role === 'super_admin'
+      ? tasksRef
+      : user.teamId
+        ? query(tasksRef, where('teamId', '==', user.teamId))
+        : null;
+
+    if (!tasksQuery) {
+      setTasks([]);
+      setLoading(false);
+      return;
+    }
+
+    const unsubscribe = onSnapshot(
+      tasksQuery,
+      (snapshot) => {
+        const data = snapshot.docs.map((docSnap) => normalizeTask(docSnap.data(), docSnap.id));
+        setTasks(data);
+        setLoading(false);
+      },
+      (err) => {
+        setError(err.message || 'Failed to load tasks');
+        setLoading(false);
+      }
+    );
+
+    return () => unsubscribe();
   }, [user]);
+
+  useEffect(() => {
+    if (!selectedTask) {
+      setComments([]);
+      return;
+    }
+
+    const commentsRef = collection(db, `tasks/${selectedTask.id}/comments`);
+    const commentsQuery = query(commentsRef, orderBy('timestamp', 'asc'));
+    const unsubscribe = onSnapshot(
+      commentsQuery,
+      (snapshot) => {
+        const data = snapshot.docs.map((docSnap) => normalizeComment(docSnap.data(), docSnap.id));
+        setComments(data);
+      },
+      (err) => {
+        setError(err.message || 'Failed to load comments');
+      }
+    );
+
+    return () => unsubscribe();
+  }, [selectedTask?.id]);
+
+  useEffect(() => {
+    if (!selectedTask) {
+      return;
+    }
+    const updated = tasks.find((task) => task.id === selectedTask.id) || null;
+    setSelectedTask(updated);
+  }, [tasks]);
 
   const teamUsers = useMemo(() => {
     if (!user) {
@@ -176,7 +271,6 @@ export default function TasksPage() {
         priority: 'medium',
         dueAt: '',
       });
-      await loadData();
     } catch (err: any) {
       setError(err.message || 'Failed to create task');
     }
@@ -188,6 +282,84 @@ export default function TasksPage() {
     }
     const assignedUser = users.find((u) => u.uid === task.assignedTo);
     return assignedUser?.displayName || assignedUser?.email || task.assignedTo;
+  };
+
+  const openTask = (task: Task) => {
+    setSelectedTask(task);
+    setBlockReason(task.blockReason || '');
+    setShowBlockModal(false);
+  };
+
+  const handleStatusChange = async (status: Task['status']) => {
+    if (!selectedTask) {
+      return;
+    }
+    if (!user) {
+      setError('You must be logged in');
+      return;
+    }
+    if (status === 'blocked') {
+      setShowBlockModal(true);
+      return;
+    }
+
+    try {
+      setStatusLoading(true);
+      await taskService.update(selectedTask.id, {
+        status,
+        blockReason: null,
+      });
+    } catch (err: any) {
+      setError(err.message || 'Failed to update status');
+    } finally {
+      setStatusLoading(false);
+    }
+  };
+
+  const handleConfirmBlocked = async () => {
+    if (!selectedTask) {
+      return;
+    }
+    if (!blockReason.trim()) {
+      setError('Block reason is required');
+      return;
+    }
+    try {
+      setStatusLoading(true);
+      await taskService.update(selectedTask.id, {
+        status: 'blocked',
+        blockReason: blockReason.trim(),
+      });
+      setShowBlockModal(false);
+    } catch (err: any) {
+      setError(err.message || 'Failed to update status');
+    } finally {
+      setStatusLoading(false);
+    }
+  };
+
+  const handleAddComment = async () => {
+    if (!selectedTask || !user) {
+      return;
+    }
+    if (!commentText.trim()) {
+      return;
+    }
+    try {
+      setCommentLoading(true);
+      await taskCommentService.create(selectedTask.id, {
+        userId: user.uid,
+        userName: user.displayName || user.email,
+        userRole: user.role,
+        text: commentText.trim(),
+        type: 'comment',
+      });
+      setCommentText('');
+    } catch (err: any) {
+      setError(err.message || 'Failed to add comment');
+    } finally {
+      setCommentLoading(false);
+    }
   };
 
   return (
@@ -221,7 +393,7 @@ export default function TasksPage() {
                 List
               </button>
               <button
-                onClick={loadData}
+                onClick={loadUsers}
                 className="px-3 py-2 text-sm rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50"
               >
                 Refresh
@@ -341,7 +513,11 @@ export default function TasksPage() {
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {tasks.map((task) => (
-                        <tr key={task.id} className="hover:bg-slate-50/50">
+                        <tr
+                          key={task.id}
+                          onClick={() => openTask(task)}
+                          className="hover:bg-slate-50/50 cursor-pointer"
+                        >
                           <td className="px-6 py-4">
                             <p className="text-slate-900 font-medium">{task.title}</p>
                             <p className="text-xs text-slate-500">{task.description}</p>
@@ -374,7 +550,11 @@ export default function TasksPage() {
                       </div>
                       <div className="space-y-3">
                         {groupedTasks[column.key]?.map((task) => (
-                          <div key={task.id} className="border border-slate-200 rounded-lg p-3">
+                          <div
+                            key={task.id}
+                            onClick={() => openTask(task)}
+                            className="border border-slate-200 rounded-lg p-3 cursor-pointer hover:border-slate-300 transition-colors duration-200"
+                          >
                             <p className="text-sm font-medium text-slate-900">{task.title}</p>
                             <p className="text-xs text-slate-500 mb-2">Assigned by {task.assignedByName} ({task.assignedByRole.replace('_', ' ')})</p>
                             <div className="flex items-center justify-between">
@@ -393,6 +573,149 @@ export default function TasksPage() {
             </div>
           </div>
         </div>
+      {selectedTask && (
+        <div className="fixed inset-0 z-40 flex justify-end">
+          <button
+            onClick={() => setSelectedTask(null)}
+            className="absolute inset-0 bg-slate-900/30"
+            aria-label="Close task details"
+          />
+          <aside className="relative w-full max-w-lg bg-white h-full shadow-lg border-l border-slate-200 flex flex-col">
+            <div className="p-6 border-b border-slate-200 flex items-start justify-between">
+              <div>
+                <h2 className="text-lg font-semibold text-slate-900">{selectedTask.title}</h2>
+                <p className="text-sm text-slate-500">Assigned by {selectedTask.assignedByName} ({selectedTask.assignedByRole.replace('_', ' ')})</p>
+              </div>
+              <button
+                onClick={() => setSelectedTask(null)}
+                className="text-slate-500 hover:text-slate-900"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="p-6 space-y-5 overflow-y-auto">
+              <div>
+                <p className="text-sm font-medium text-slate-700 mb-2">Description</p>
+                <p className="text-sm text-slate-600">{selectedTask.description || 'No description provided.'}</p>
+              </div>
+              <div className="grid grid-cols-2 gap-4 text-sm text-slate-600">
+                <div>
+                  <p className="font-medium text-slate-700 mb-1">Assignee</p>
+                  <p>{getAssigneeLabel(selectedTask)}</p>
+                </div>
+                <div>
+                  <p className="font-medium text-slate-700 mb-1">Due Date</p>
+                  <p>{new Date(selectedTask.dueAt).toLocaleDateString()}</p>
+                </div>
+                <div>
+                  <p className="font-medium text-slate-700 mb-1">Created by</p>
+                  <p>{selectedTask.createdByName} ({selectedTask.createdByRole.replace('_', ' ')})</p>
+                </div>
+                <div>
+                  <p className="font-medium text-slate-700 mb-1">Priority</p>
+                  <span className={`px-2.5 py-1 rounded-full text-xs ${priorityStyles[selectedTask.priority]}`}>
+                    {selectedTask.priority}
+                  </span>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Status</label>
+                <select
+                  value={selectedTask.status}
+                  onChange={(e) => handleStatusChange(e.target.value as Task['status'])}
+                  disabled={statusLoading}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-slate-900"
+                >
+                  {statusColumns.map((status) => (
+                    <option key={status.key} value={status.key}>
+                      {status.label}
+                    </option>
+                  ))}
+                </select>
+                {selectedTask.status === 'blocked' && selectedTask.blockReason && (
+                  <p className="text-xs text-rose-600 mt-2">Blocked reason: {selectedTask.blockReason}</p>
+                )}
+              </div>
+
+              <div>
+                <p className="text-sm font-medium text-slate-700 mb-2">Comments</p>
+                <div className="space-y-3">
+                  {comments.length === 0 ? (
+                    <p className="text-sm text-slate-500">No comments yet.</p>
+                  ) : (
+                    comments.map((comment) => (
+                      <div key={comment.id} className="border border-slate-200 rounded-lg p-3">
+                        <p className="text-xs text-slate-500 mb-1">
+                          {comment.userName} ({comment.userRole.replace('_', ' ')}) · {new Date(comment.timestamp).toLocaleString()}
+                        </p>
+                        <p className="text-sm text-slate-700">{comment.text}</p>
+                      </div>
+                    ))
+                  )}
+                </div>
+                <div className="mt-4">
+                  <textarea
+                    value={commentText}
+                    onChange={(e) => setCommentText(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-900"
+                    rows={3}
+                    placeholder="Add a comment"
+                  />
+                  <button
+                    onClick={handleAddComment}
+                    disabled={commentLoading}
+                    className="mt-2 w-full bg-slate-900 text-white font-medium py-2 px-4 rounded-lg hover:bg-slate-800 disabled:bg-slate-400 transition-colors duration-200"
+                  >
+                    {commentLoading ? 'Posting...' : 'Post Comment'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </aside>
+        </div>
+      )}
+
+      {showBlockModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <button
+            onClick={() => {
+              setShowBlockModal(false);
+            }}
+            className="absolute inset-0 bg-slate-900/30"
+            aria-label="Close blocked modal"
+          />
+          <div className="relative bg-white w-full max-w-md rounded-lg border border-slate-200 p-6 shadow-lg">
+            <h3 className="text-lg font-semibold text-slate-900 mb-2">Blocked Reason Required</h3>
+            <p className="text-sm text-slate-500 mb-4">Provide a clear reason why this task is blocked.</p>
+            <textarea
+              value={blockReason}
+              onChange={(e) => setBlockReason(e.target.value)}
+              className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-900"
+              rows={4}
+              placeholder="Describe the blocker..."
+            />
+            <div className="mt-4 flex gap-2">
+              <button
+                onClick={() => {
+                  setShowBlockModal(false);
+                }}
+                className="flex-1 px-4 py-2 border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmBlocked}
+                disabled={statusLoading}
+                className="flex-1 px-4 py-2 bg-slate-900 text-white rounded-lg hover:bg-slate-800 disabled:bg-slate-400"
+              >
+                {statusLoading ? 'Saving...' : 'Confirm'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       </MainLayout>
     </RoleGuard>
   );
