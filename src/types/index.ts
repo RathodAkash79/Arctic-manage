@@ -40,7 +40,7 @@ export interface Task {
   createdByName: string;
   createdByRole: UserRole;
   createdAt: number;
-  dueAt: number;
+  dueAt?: number | null;
 }
 
 export interface TaskComment {
@@ -59,6 +59,8 @@ export interface AuthContextType {
   login: (email: string, password: string) => Promise<void>;
   signup: (email: string, password: string, displayName: string, role: UserRole) => Promise<void>;
   createManagedUser: (email: string, password: string, displayName: string, role: UserRole) => Promise<void>;
+  updateProfileName: (displayName: string) => Promise<void>;
+  changePassword: (newPassword: string) => Promise<void>;
   logout: () => Promise<void>;
   isAuthenticated: boolean;
 }

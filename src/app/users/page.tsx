@@ -62,6 +62,7 @@ export default function UsersPage() {
   );
 
   const canCreateUsers = allowedRoles.length > 0;
+  const canViewEmails = currentUser?.role === 'super_admin';
 
   useEffect(() => {
     if (allowedRoles.length > 0) {
@@ -247,6 +248,7 @@ export default function UsersPage() {
                   <thead className="bg-slate-50 text-slate-500">
                     <tr>
                       <th className="text-left font-medium px-6 py-3">Name</th>
+                      {canViewEmails ? <th className="text-left font-medium px-6 py-3">Email</th> : null}
                       <th className="text-left font-medium px-6 py-3">Role</th>
                       <th className="text-left font-medium px-6 py-3">Manage</th>
                     </tr>
@@ -257,6 +259,7 @@ export default function UsersPage() {
                         <td className="px-6 py-4 text-slate-900 font-medium">
                           {userItem.displayName || 'Unnamed'}
                         </td>
+                        {canViewEmails ? <td className="px-6 py-4 text-slate-600">{userItem.email || '—'}</td> : null}
                         <td className="px-6 py-4">
                           {userItem.uid === SUPER_ADMIN_UID && currentUser?.role !== 'super_admin' ? (
                             <span className="text-slate-900 font-medium">super_admin</span>

@@ -1,0 +1,131 @@
+rules_version = '2';
+service cloud.firestore {
+      match /databases/{database}/documents {
+            function isSignedIn() {
+                      return request.auth != null;
+            }
+
+                function userDoc(uid) {
+                          return get(/databases/$(database)/documents/users/$(uid));
+                }
+
+                    function currentUserDoc() {
+                              return userDoc(request.auth.uid);
+                    }
+
+                        function currentRole() {
+                                  return currentUserDoc().data.role;
+                        }
+
+                            function roleRank(role) {
+                                      return role == 'super_admin' ? 5 :
+                                                   role == 'admin' ? 4 :
+                                                                role == 'developer' ? 3 :
+                                                                             role == 'staff' ? 2 :
+                                                                                          role == 'trial_staff' ? 1 : 0;
+                            }
+
+                                function isSuperAdmin() {
+                                          return isSignedIn() && currentRole() == 'super_admin';
+                                }
+
+                                    function isAdmin() {
+                                              return isSignedIn() && currentRole() == 'admin';
+                                    }
+
+                                        function isDeveloper() {
+                                                  return isSignedIn() && currentRole() == 'developer';
+                                        }
+
+                                            function isStaff() {
+                                                      return isSignedIn() && currentRole() == 'staff';
+                                            }
+
+                                                function roleCanCreateUser(targetRole) {
+                                                          return isSuperAdmin() ||
+                                                                  (isAdmin() && (targetRole == 'staff' || targetRole == 'trial_staff')) ||
+                                                                          ((isDeveloper() || isStaff()) && targetRole == 'trial_staff');
+                                                }
+
+                                                    match /users/{uid} {
+                                                              allow read: if isSignedIn();
+
+                                                                    allow create: if isSignedIn()
+                                                                            && roleCanCreateUser(request.resource.data.role)
+                                                                                    && request.resource.data.uid == uid;
+
+                                                                                          allow update: if isSignedIn() && (
+                                                                                                    isSuperAdmin()
+                                                                                                            || (
+                                                                                                                          isAdmin()
+                                                                                                                                    && roleRank(currentRole()) > roleRank(resource.data.role)
+                                                                                                                                              && roleRank(currentRole()) > roleRank(request.resource.data.role)
+                                                                                                            )
+                                                                                                                    || (
+                                                                                                                                  request.auth.uid == uid
+                                                                                                                                            && request.resource.data.diff(resource.data).changedKeys().hasOnly(['displayName'])
+                                                                                                                    )
+                                                                                          );
+
+                                                                                                allow delete: if isSuperAdmin();
+                                                    }
+
+                                                        match /milestones/{milestoneId} {
+                                                                  allow read: if isSignedIn();
+                                                                        allow write: if isSuperAdmin();
+                                                        }
+
+                                                            match /tasks/{taskId} {
+                                                                      allow read: if isSignedIn();
+
+                                                                            allow create: if isSignedIn()
+                                                                                    && currentRole() != 'trial_staff'
+                                                                                            && request.resource.data.createdBy == request.auth.uid
+                                                                                                    && (
+                                                                                                                  (request.resource.data.assignedUserIds is list && request.resource.data.assignedUserIds.size() > 0)
+                                                                                                                            || (request.resource.data.assignedRole is string)
+                                                                                                    );
+
+                                                                                                          allow update: if isSignedIn()
+                                                                                                                  && (
+                                                                                                                              request.resource.data.status != 'done'
+                                                                                                                                        || currentRole() == resource.data.assignedByRole
+                                                                                                                  );
+
+                                                                                                                        allow delete: if isSignedIn()
+                                                                                                                                && (
+                                                                                                                                              resource.data.assignedById == request.auth.uid
+                                                                                                                                                        || roleRank(currentRole()) >= roleRank(resource.data.assignedByRole)
+                                                                                                                                );
+                                                            }
+
+                                                                match /tasks/{taskId}/comments/{commentId} {
+                                                                          allow read: if isSignedIn();
+                                                                                allow create: if isSignedIn()
+                                                                                        && request.resource.data.userId == request.auth.uid;
+                                                                                              allow update, delete: if false;
+                                                                }
+      }
+}
+                                                                }
+                                                                                                                                )
+                                                                                                                  )
+                                                                                                    )
+                                                            }
+                                                        }
+                                                                                                                    )
+                                                                                                            )
+                                                                                          )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+      }
+}

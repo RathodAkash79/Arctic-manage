@@ -12,6 +12,8 @@ import {
   signOut,
   onAuthStateChanged,
   createUserWithEmailAndPassword,
+  updateProfile as firebaseUpdateProfile,
+  updatePassword as firebaseUpdatePassword,
   User as FirebaseUser,
 } from 'firebase/auth';
 import {
@@ -19,6 +21,7 @@ import {
   doc,
   getDoc,
   setDoc,
+  updateDoc,
   Timestamp,
 } from 'firebase/firestore';
 import { auth, db, getSecondaryAuth } from '@/lib/firebase';
@@ -277,6 +280,50 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({
     }
   };
 
+  const updateProfileName = async (displayName: string): Promise<void> => {
+    const normalizedName = displayName.trim();
+    if (!normalizedName) {
+      throw new Error('Display name is required');
+    }
+
+    if (!auth.currentUser) {
+      throw new Error('You must be logged in');
+    }
+
+    try {
+      await firebaseUpdateProfile(auth.currentUser, { displayName: normalizedName });
+      await updateDoc(doc(collection(db, 'users'), auth.currentUser.uid), {
+        displayName: normalizedName,
+      });
+
+      setUser((prev) =>
+        prev
+          ? {
+              ...prev,
+              displayName: normalizedName,
+            }
+          : prev
+      );
+    } catch (error: any) {
+      throw new Error(error?.message || 'Failed to update profile name');
+    }
+  };
+
+  const changePassword = async (newPassword: string): Promise<void> => {
+    if (!auth.currentUser) {
+      throw new Error('You must be logged in');
+    }
+
+    try {
+      await firebaseUpdatePassword(auth.currentUser, newPassword);
+    } catch (error: any) {
+      if (error?.code === 'auth/requires-recent-login') {
+        throw new Error('For security reasons, please log out and log in again before changing your password.');
+      }
+      throw new Error(error?.message || 'Failed to update password');
+    }
+  };
+
   const logout = async (): Promise<void> => {
     try {
       setLoading(true);
@@ -296,6 +343,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({
     login,
     signup,
     createManagedUser,
+    updateProfileName,
+    changePassword,
     logout,
     isAuthenticated: user !== null,
   };

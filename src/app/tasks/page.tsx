@@ -23,6 +23,14 @@ const priorityStyles: Record<Task['priority'], string> = {
   high: 'bg-rose-50 text-rose-700 border border-rose-100',
 };
 
+const ROLE_RANK: Record<UserRole, number> = {
+  super_admin: 5,
+  admin: 4,
+  developer: 3,
+  staff: 2,
+  trial_staff: 1,
+};
+
 const getAssignableRoles = (creatorRole?: UserRole): UserRole[] => {
   if (!creatorRole) return [];
   if (creatorRole === 'super_admin') return ['super_admin', 'admin', 'developer', 'staff', 'trial_staff'];
@@ -57,7 +65,7 @@ const normalizeTask = (data: Record<string, unknown>, id: string): Task => ({
   createdByName: (data.createdByName as string) || '',
   createdByRole: (data.createdByRole as UserRole) || 'trial_staff',
   createdAt: toMillis(data.createdAt),
-  dueAt: toMillis(data.dueAt),
+  dueAt: data.dueAt ? toMillis(data.dueAt) : null,
 });
 
 const normalizeComment = (data: Record<string, unknown>, id: string): TaskComment => ({
@@ -77,7 +85,6 @@ export default function TasksPage() {
   const [activeMilestone, setActiveMilestone] = useState<Milestone | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [viewMode, setViewMode] = useState<'kanban' | 'list'>('kanban');
   const [showCreateModal, setShowCreateModal] = useState(false);
 
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
@@ -85,6 +92,7 @@ export default function TasksPage() {
   const [commentText, setCommentText] = useState('');
   const [commentLoading, setCommentLoading] = useState(false);
   const [statusLoading, setStatusLoading] = useState(false);
+  const [deleteLoading, setDeleteLoading] = useState(false);
   const [blockReason, setBlockReason] = useState('');
   const [showBlockModal, setShowBlockModal] = useState(false);
 
@@ -100,6 +108,7 @@ export default function TasksPage() {
 
   const canCreateTask = user?.role !== 'trial_staff';
   const allowedAssigneeRoles = getAssignableRoles(user?.role);
+  const showSubordinateSection = user?.role !== 'trial_staff';
 
   const loadUsersAndMilestone = async () => {
     try {
@@ -172,15 +181,53 @@ export default function TasksPage() {
     }
   }, [assignableUsers, allowedAssigneeRoles, form.assignedRole, form.assignedUserIds.length]);
 
-  const groupedTasks = useMemo(
-    () => statusColumns.reduce<Record<string, Task[]>>((acc, col) => ({ ...acc, [col.key]: tasks.filter((taskItem) => taskItem.status === col.key) }), {}),
+  const usersById = useMemo(
+    () => users.reduce<Record<string, User>>((acc, userItem) => ({ ...acc, [userItem.uid]: userItem }), {}),
+    [users]
+  );
+
+  const sortedTasks = useMemo(
+    () => [...tasks].sort((a, b) => {
+      const dueA = a.dueAt ?? Number.MAX_SAFE_INTEGER;
+      const dueB = b.dueAt ?? Number.MAX_SAFE_INTEGER;
+      return dueA - dueB;
+    }),
     [tasks]
   );
+
+  const myAssignedTasks = useMemo(() => {
+    if (!user) return [];
+    const assigned = sortedTasks.filter(
+      (taskItem) =>
+        taskItem.assignedUserIds.includes(user.uid) ||
+        (taskItem.assignedRole ? taskItem.assignedRole === user.role : false)
+    );
+    const active = assigned.filter((taskItem) => taskItem.status !== 'done');
+    const completed = assigned.filter((taskItem) => taskItem.status === 'done');
+    return [...active, ...completed];
+  }, [sortedTasks, user]);
+
+  const subordinateTasks = useMemo(() => {
+    if (!user || user.role === 'trial_staff') return [];
+    const currentUserRank = ROLE_RANK[user.role];
+
+    return sortedTasks.filter((taskItem) => {
+      const hasLowerRoleAssignment =
+        !!taskItem.assignedRole && ROLE_RANK[taskItem.assignedRole] < currentUserRank;
+
+      const hasLowerUserAssignment = taskItem.assignedUserIds.some((uid) => {
+        const assignedUser = usersById[uid];
+        return assignedUser ? ROLE_RANK[assignedUser.role] < currentUserRank : false;
+      });
+
+      return hasLowerRoleAssignment || hasLowerUserAssignment;
+    });
+  }, [sortedTasks, user, usersById]);
 
   const handleCreateTask = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!user) return setError('You must be logged in');
-    if (!form.title.trim() || !form.dueAt) return setError('Title and due date are required');
+    if (!form.title.trim()) return setError('Title is required');
     if (!activeMilestone) return setError('A global active milestone is required before creating tasks');
     if (!canCreateTask) return setError('You do not have permission to create tasks');
     if (form.assignmentType === 'users' && form.assignedUserIds.length === 0) return setError('Select at least one assignee');
@@ -203,7 +250,7 @@ export default function TasksPage() {
         createdBy: user.uid,
         createdByName: user.displayName || user.email,
         createdByRole: user.role,
-        dueAt: new Date(form.dueAt).getTime(),
+        dueAt: form.dueAt ? new Date(form.dueAt).getTime() : null,
       });
 
       setForm({
@@ -226,12 +273,16 @@ export default function TasksPage() {
     if (taskItem.assignedRole) return `Role: ${taskItem.assignedRole.replace('_', ' ')}`;
     if (!taskItem.assignedUserIds.length) return 'Unassigned';
     return taskItem.assignedUserIds
-      .map((uid) => users.find((userItem) => userItem.uid === uid)?.displayName || users.find((userItem) => userItem.uid === uid)?.email || uid)
+      .map((uid) => usersById[uid]?.displayName || usersById[uid]?.email || uid)
       .join(', ');
   };
 
   const handleStatusChange = async (status: Task['status']) => {
     if (!selectedTask) return;
+    if (status === 'done' && user?.role !== selectedTask.assignedByRole) {
+      setError(`Only ${selectedTask.assignedByRole.replace('_', ' ')} rank can mark this task as done.`);
+      return;
+    }
     if (status === 'blocked') return setShowBlockModal(true);
     try {
       setStatusLoading(true);
@@ -280,6 +331,37 @@ export default function TasksPage() {
     }
   };
 
+  const canDeleteTask = (taskItem: Task | null): boolean => {
+    if (!taskItem || !user) return false;
+    const isAssigner = taskItem.assignedById ? taskItem.assignedById === user.uid : false;
+    const assignedByRank = ROLE_RANK[taskItem.assignedByRole] || 0;
+    const currentUserRank = ROLE_RANK[user.role] || 0;
+    return isAssigner || currentUserRank >= assignedByRank;
+  };
+
+  const handleDeleteTask = async () => {
+    if (!selectedTask) return;
+    if (!canDeleteTask(selectedTask)) {
+      setError('You are not allowed to delete this task.');
+      return;
+    }
+
+    const shouldDelete = window.confirm('Delete this task permanently? This action cannot be undone.');
+    if (!shouldDelete) return;
+
+    try {
+      setDeleteLoading(true);
+      setError('');
+      await taskService.remove(selectedTask.id);
+      setSelectedTask(null);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to delete task';
+      setError(message);
+    } finally {
+      setDeleteLoading(false);
+    }
+  };
+
   return (
     <RoleGuard allowedRoles={['super_admin', 'admin', 'developer', 'staff', 'trial_staff']}>
       <MainLayout>
@@ -303,7 +385,7 @@ export default function TasksPage() {
           <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h1 className="text-2xl font-semibold text-slate-900">Tasks</h1>
-              <p className="text-slate-500">Assignments support specific users or a target role.</p>
+              <p className="text-slate-500">Two-tier visibility: your assignments first, subordinate workload second.</p>
             </div>
             <div className="flex items-center gap-2">
               {canCreateTask && (
@@ -314,18 +396,6 @@ export default function TasksPage() {
                   Create Task
                 </button>
               )}
-              <button
-                onClick={() => setViewMode('kanban')}
-                className={`px-3 py-2 text-sm rounded-lg border ${viewMode === 'kanban' ? 'border-slate-900 text-slate-900 bg-slate-50' : 'border-slate-200 text-slate-600 hover:bg-slate-50'}`}
-              >
-                Kanban
-              </button>
-              <button
-                onClick={() => setViewMode('list')}
-                className={`px-3 py-2 text-sm rounded-lg border ${viewMode === 'list' ? 'border-slate-900 text-slate-900 bg-slate-50' : 'border-slate-200 text-slate-600 hover:bg-slate-50'}`}
-              >
-                List
-              </button>
               <button
                 onClick={loadUsersAndMilestone}
                 className="px-3 py-2 text-sm rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50"
@@ -348,60 +418,89 @@ export default function TasksPage() {
               <div className="h-4 w-5/6 bg-slate-100 rounded animate-pulse" />
               <div className="h-4 w-4/6 bg-slate-100 rounded animate-pulse" />
             </div>
-          ) : tasks.length === 0 ? (
-            <div className="bg-white rounded-lg border border-slate-200 p-6 text-slate-500">No tasks assigned yet.</div>
-          ) : viewMode === 'list' ? (
-            <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
-              <table className="w-full text-sm">
-                <thead className="bg-slate-50 text-slate-500">
-                  <tr>
-                    <th className="text-left font-medium px-6 py-3">Task</th>
-                    <th className="text-left font-medium px-6 py-3">Assignee</th>
-                    <th className="text-left font-medium px-6 py-3">Assigned By</th>
-                    <th className="text-left font-medium px-6 py-3">Status</th>
-                    <th className="text-left font-medium px-6 py-3">Priority</th>
-                    <th className="text-left font-medium px-6 py-3">Due</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {tasks.map((taskItem) => (
-                    <tr key={taskItem.id} onClick={() => { setSelectedTask(taskItem); setBlockReason(taskItem.blockReason || ''); setShowBlockModal(false); }} className="hover:bg-slate-50/50 cursor-pointer">
-                      <td className="px-6 py-4">
-                        <p className="text-slate-900 font-medium">{taskItem.title}</p>
-                        <p className="text-xs text-slate-500">{taskItem.description}</p>
-                      </td>
-                      <td className="px-6 py-4 text-slate-600">{getAssigneeLabel(taskItem)}</td>
-                      <td className="px-6 py-4 text-slate-600">{taskItem.assignedByName} ({taskItem.assignedByRole.replace('_', ' ')})</td>
-                      <td className="px-6 py-4 text-slate-600">{taskItem.status}</td>
-                      <td className="px-6 py-4"><span className={`px-2.5 py-1 rounded-full text-xs ${priorityStyles[taskItem.priority]}`}>{taskItem.priority}</span></td>
-                      <td className="px-6 py-4 text-slate-600">{new Date(taskItem.dueAt).toLocaleDateString()}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
-              {statusColumns.map((column) => (
-                <div key={column.key} className="bg-white rounded-lg border border-slate-200 shadow-sm p-4">
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-sm font-semibold text-slate-900">{column.label}</h3>
-                    <span className="text-xs text-slate-500">{groupedTasks[column.key]?.length || 0}</span>
-                  </div>
-                  <div className="space-y-3">
-                    {groupedTasks[column.key]?.map((taskItem) => (
-                      <div key={taskItem.id} onClick={() => { setSelectedTask(taskItem); setBlockReason(taskItem.blockReason || ''); setShowBlockModal(false); }} className="border border-slate-200 rounded-lg p-3 cursor-pointer hover:border-slate-300 transition-colors duration-200">
-                        <p className="text-sm font-medium text-slate-900">{taskItem.title}</p>
-                        <p className="text-xs text-slate-500 mb-2">Assigned by {taskItem.assignedByName} ({taskItem.assignedByRole.replace('_', ' ')})</p>
-                        <div className="flex items-center justify-between gap-2">
-                          <span className={`px-2 py-0.5 rounded-full text-xs ${priorityStyles[taskItem.priority]}`}>{taskItem.priority}</span>
-                          <span className="text-xs text-slate-500 text-right">{getAssigneeLabel(taskItem)}</span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+            <div className="space-y-6">
+              <section className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
+                <div className="px-6 py-4 border-b border-slate-200">
+                  <h2 className="text-lg font-semibold text-slate-900">My Assigned Tasks</h2>
+                  <p className="text-xs text-slate-500 mt-1">Tasks assigned to your user ID or your role.</p>
                 </div>
-              ))}
+                {myAssignedTasks.length === 0 ? (
+                  <div className="p-6 text-slate-500 text-sm">No tasks are currently assigned to you or your role.</div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead className="bg-slate-50 text-slate-500">
+                        <tr>
+                          <th className="text-left font-medium px-6 py-3">Task</th>
+                          <th className="text-left font-medium px-6 py-3">Assignee</th>
+                          <th className="text-left font-medium px-6 py-3">Assigned By</th>
+                          <th className="text-left font-medium px-6 py-3">Status</th>
+                          <th className="text-left font-medium px-6 py-3">Priority</th>
+                          <th className="text-left font-medium px-6 py-3">Due</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {myAssignedTasks.map((taskItem) => (
+                          <tr key={taskItem.id} onClick={() => { setSelectedTask(taskItem); setBlockReason(taskItem.blockReason || ''); setShowBlockModal(false); }} className="hover:bg-slate-50/50 cursor-pointer">
+                            <td className="px-6 py-4">
+                              <p className="text-slate-900 font-medium">{taskItem.title}</p>
+                              <p className="text-xs text-slate-500">{taskItem.description}</p>
+                            </td>
+                            <td className="px-6 py-4 text-slate-600">{getAssigneeLabel(taskItem)}</td>
+                            <td className="px-6 py-4 text-slate-600">{taskItem.assignedByName} ({taskItem.assignedByRole.replace('_', ' ')})</td>
+                            <td className="px-6 py-4 text-slate-600">{taskItem.status}</td>
+                            <td className="px-6 py-4"><span className={`px-2.5 py-1 rounded-full text-xs ${priorityStyles[taskItem.priority]}`}>{taskItem.priority}</span></td>
+                            <td className="px-6 py-4 text-slate-600">{taskItem.dueAt ? new Date(taskItem.dueAt).toLocaleDateString() : '—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </section>
+
+              {showSubordinateSection && (
+                <section className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
+                  <div className="px-6 py-4 border-b border-slate-200">
+                    <h2 className="text-lg font-semibold text-slate-900">Subordinate Tasks</h2>
+                    <p className="text-xs text-slate-500 mt-1">Tasks assigned to users or roles lower than your rank.</p>
+                  </div>
+                  {subordinateTasks.length === 0 ? (
+                    <div className="p-6 text-slate-500 text-sm">No subordinate tasks found for your current hierarchy.</div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead className="bg-slate-50 text-slate-500">
+                          <tr>
+                            <th className="text-left font-medium px-6 py-3">Task</th>
+                            <th className="text-left font-medium px-6 py-3">Assignee</th>
+                            <th className="text-left font-medium px-6 py-3">Assigned By</th>
+                            <th className="text-left font-medium px-6 py-3">Status</th>
+                            <th className="text-left font-medium px-6 py-3">Priority</th>
+                            <th className="text-left font-medium px-6 py-3">Due</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {subordinateTasks.map((taskItem) => (
+                            <tr key={taskItem.id} onClick={() => { setSelectedTask(taskItem); setBlockReason(taskItem.blockReason || ''); setShowBlockModal(false); }} className="hover:bg-slate-50/50 cursor-pointer">
+                              <td className="px-6 py-4">
+                                <p className="text-slate-900 font-medium">{taskItem.title}</p>
+                                <p className="text-xs text-slate-500">{taskItem.description}</p>
+                              </td>
+                              <td className="px-6 py-4 text-slate-600">{getAssigneeLabel(taskItem)}</td>
+                              <td className="px-6 py-4 text-slate-600">{taskItem.assignedByName} ({taskItem.assignedByRole.replace('_', ' ')})</td>
+                              <td className="px-6 py-4 text-slate-600">{taskItem.status}</td>
+                              <td className="px-6 py-4"><span className={`px-2.5 py-1 rounded-full text-xs ${priorityStyles[taskItem.priority]}`}>{taskItem.priority}</span></td>
+                              <td className="px-6 py-4 text-slate-600">{taskItem.dueAt ? new Date(taskItem.dueAt).toLocaleDateString() : '—'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </section>
+              )}
             </div>
           )}
 
@@ -472,7 +571,7 @@ export default function TasksPage() {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-2">Due Date</label>
+                    <label className="block text-sm font-medium text-slate-700 mb-2">Due Date (Optional)</label>
                     <input type="date" value={form.dueAt} onChange={(e) => setForm((prev) => ({ ...prev, dueAt: e.target.value }))} className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-900" />
                   </div>
                   <button type="submit" className="w-full bg-slate-900 text-white font-medium py-2 px-4 rounded-lg hover:bg-slate-800 transition-colors duration-200">Create Task</button>
@@ -491,7 +590,18 @@ export default function TasksPage() {
                   <h2 className="text-lg font-semibold text-slate-900">{selectedTask.title}</h2>
                   <p className="text-sm text-slate-500">Assigned by {selectedTask.assignedByName} ({selectedTask.assignedByRole.replace('_', ' ')})</p>
                 </div>
-                <button onClick={() => setSelectedTask(null)} className="text-slate-500 hover:text-slate-900">✕</button>
+                <div className="flex items-center gap-2">
+                  {canDeleteTask(selectedTask) && (
+                    <button
+                      onClick={handleDeleteTask}
+                      disabled={deleteLoading}
+                      className="text-xs px-3 py-1.5 border border-rose-200 rounded-lg text-rose-700 hover:bg-rose-50 disabled:bg-slate-100 disabled:text-slate-400"
+                    >
+                      {deleteLoading ? 'Deleting...' : 'Delete'}
+                    </button>
+                  )}
+                  <button onClick={() => setSelectedTask(null)} className="text-slate-500 hover:text-slate-900">✕</button>
+                </div>
               </div>
 
               <div className="p-6 space-y-5 overflow-y-auto">
@@ -501,7 +611,7 @@ export default function TasksPage() {
                 </div>
                 <div className="grid grid-cols-2 gap-4 text-sm text-slate-600">
                   <div><p className="font-medium text-slate-700 mb-1">Assignee</p><p>{getAssigneeLabel(selectedTask)}</p></div>
-                  <div><p className="font-medium text-slate-700 mb-1">Due Date</p><p>{new Date(selectedTask.dueAt).toLocaleDateString()}</p></div>
+                  <div><p className="font-medium text-slate-700 mb-1">Due Date</p><p>{selectedTask.dueAt ? new Date(selectedTask.dueAt).toLocaleDateString() : '—'}</p></div>
                   <div><p className="font-medium text-slate-700 mb-1">Created by</p><p>{selectedTask.createdByName} ({selectedTask.createdByRole.replace('_', ' ')})</p></div>
                   <div><p className="font-medium text-slate-700 mb-1">Priority</p><span className={`px-2.5 py-1 rounded-full text-xs ${priorityStyles[selectedTask.priority]}`}>{selectedTask.priority}</span></div>
                 </div>

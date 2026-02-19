@@ -32,6 +32,19 @@ const toMillis = (value: any): number => {
   return Date.now();
 };
 
+const toNullableMillis = (value: any): number | null => {
+  if (value === undefined || value === null) {
+    return null;
+  }
+  if (typeof value === 'number') {
+    return value;
+  }
+  if (value.toMillis) {
+    return value.toMillis();
+  }
+  return null;
+};
+
 const toTimestamp = (value: any, fallbackNow = true): Timestamp => {
   if (value && value.toMillis) {
     return value as Timestamp;
@@ -93,7 +106,7 @@ const normalizeTask = (data: any, id: string): Task => {
     createdByName: data.createdByName || '',
     createdByRole: data.createdByRole || 'trial_staff',
     createdAt: toMillis(data.createdAt),
-    dueAt: toMillis(data.dueAt),
+    dueAt: toNullableMillis(data.dueAt),
   };
 };
 
@@ -268,8 +281,6 @@ export const taskService = {
       requireField('createdBy', task.createdBy);
       requireField('createdByName', task.createdByName);
       requireField('createdByRole', task.createdByRole);
-      requireField('dueAt', task.dueAt);
-
       const assignedUserIds = Array.isArray(task.assignedUserIds)
         ? task.assignedUserIds.filter(Boolean)
         : [];
@@ -285,7 +296,7 @@ export const taskService = {
         assignedUserIds,
         assignedRole: task.assignedRole || null,
         createdAt: toTimestamp(task.createdAt),
-        dueAt: toTimestamp(task.dueAt),
+        dueAt: task.dueAt ? toTimestamp(task.dueAt) : null,
       };
       await setDoc(taskRef, payload);
       return payload;
@@ -354,8 +365,10 @@ export const taskService = {
       if (payload.createdAt) {
         payload.createdAt = toTimestamp(payload.createdAt);
       }
-      if (payload.dueAt) {
+      if (payload.dueAt !== undefined && payload.dueAt !== null) {
         payload.dueAt = toTimestamp(payload.dueAt, false);
+      } else if (payload.dueAt === null) {
+        payload.dueAt = null;
       }
       if (payload.assignedUserIds && Array.isArray(payload.assignedUserIds)) {
         payload.assignedUserIds = payload.assignedUserIds.filter(Boolean);

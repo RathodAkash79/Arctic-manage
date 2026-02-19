@@ -129,5 +129,24 @@ Once login works ✅:
 2. Check Firestore console - you should see `/users/{UID}` document created
 3. Say **"Start Phase 2"** to proceed with Database Services & CRUD operations
 
+---
+
+## Production Deployment Checklist (Current App)
+
+1. Create local env file from [example.env](example.env):
+  - Copy `example.env` → `.env.local`
+  - Fill all `NEXT_PUBLIC_FIREBASE_*` values from Firebase Console.
+
+2. Apply Firestore security rules:
+  - Rules file is [firestore.rules](firestore.rules)
+  - In Firebase Console → Firestore Database → Rules, paste file content and publish.
+
+3. Validate production build before deploy:
+  - `npm run build`
+  - `npm run start`
+
+4. Optional CLI deploy (if Firebase CLI configured):
+  - `firebase deploy --only firestore:rules`
+
 
 
