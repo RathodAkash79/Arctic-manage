@@ -94,7 +94,7 @@ export default function SignupPage() {
             Arctic Manage
           </h1>
           <p className="text-slate-500">
-            Internal Team Management System
+            Internal Role Management System
           </p>
         </div>
 

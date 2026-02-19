@@ -11,12 +11,13 @@ import {
   Timestamp,
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import { User, Team, Milestone, Task, TaskComment, UserRole } from '@/types';
+import { User, Milestone, Task, TaskComment, UserRole } from '@/types';
 
 const usersCollection = collection(db, 'users');
-const teamsCollection = collection(db, 'teams');
 const milestonesCollection = collection(db, 'milestones');
 const tasksCollection = collection(db, 'tasks');
+
+const ACTIVE_MILESTONE_ID = 'active';
 
 const toMillis = (value: any): number => {
   if (!value) {
@@ -52,48 +53,49 @@ const normalizeUser = (data: any, uid: string): User => ({
   email: data.email || '',
   displayName: data.displayName || '',
   role: data.role,
-  teamId: data.teamId ?? null,
   status: data.status,
-  createdAt: toMillis(data.createdAt),
-});
-
-const normalizeTeam = (data: any, id: string): Team => ({
-  id,
-  name: data.name,
-  createdBy: data.createdBy,
-  members: Array.isArray(data.members) ? data.members : [],
   createdAt: toMillis(data.createdAt),
 });
 
 const normalizeMilestone = (data: any, id: string): Milestone => ({
   id,
   title: data.title,
-  teamId: data.teamId,
   deadline: toMillis(data.deadline),
-  status: data.status,
+  status: data.status || 'active',
   progress: typeof data.progress === 'number' ? data.progress : 0,
+  createdBy: data.createdBy || '',
+  createdByName: data.createdByName || '',
   createdAt: toMillis(data.createdAt),
+  updatedAt: toMillis(data.updatedAt),
 });
 
-const normalizeTask = (data: any, id: string): Task => ({
-  id,
-  title: data.title,
-  description: data.description || '',
-  milestoneId: data.milestoneId,
-  teamId: data.teamId,
-  assignedTo: data.assignedTo,
-  assignedById: data.assignedById ?? null,
-  assignedByName: data.assignedByName || '',
-  assignedByRole: data.assignedByRole || 'trial_staff',
-  priority: data.priority,
-  status: data.status,
-  blockReason: data.blockReason ?? null,
-  createdBy: data.createdBy,
-  createdByName: data.createdByName || '',
-  createdByRole: data.createdByRole || 'trial_staff',
-  createdAt: toMillis(data.createdAt),
-  dueAt: toMillis(data.dueAt),
-});
+const normalizeTask = (data: any, id: string): Task => {
+  const assignedUserIds = Array.isArray(data.assignedUserIds)
+    ? data.assignedUserIds.filter(Boolean)
+    : [];
+
+  const assignedRole = data.assignedRole || null;
+
+  return {
+    id,
+    title: data.title,
+    description: data.description || '',
+    milestoneId: data.milestoneId,
+    assignedUserIds,
+    assignedRole,
+    assignedById: data.assignedById ?? null,
+    assignedByName: data.assignedByName || '',
+    assignedByRole: data.assignedByRole || 'trial_staff',
+    priority: data.priority,
+    status: data.status,
+    blockReason: data.blockReason ?? null,
+    createdBy: data.createdBy,
+    createdByName: data.createdByName || '',
+    createdByRole: data.createdByRole || 'trial_staff',
+    createdAt: toMillis(data.createdAt),
+    dueAt: toMillis(data.dueAt),
+  };
+};
 
 const normalizeComment = (data: any, id: string): TaskComment => ({
   id,
@@ -146,17 +148,6 @@ export const userService = {
     }
   },
 
-  async listByTeam(teamId: string): Promise<User[]> {
-    try {
-      requireField('teamId', teamId);
-      const q = query(usersCollection, where('teamId', '==', teamId));
-      const snapshot = await getDocs(q);
-      return snapshot.docs.map((docSnap) => normalizeUser(docSnap.data(), docSnap.id));
-    } catch (error: any) {
-      throw new Error(`userService.listByTeam failed: ${error.message || error}`);
-    }
-  },
-
   async update(uid: string, data: Partial<User>) {
     try {
       const payload = { ...data } as any;
@@ -178,97 +169,38 @@ export const userService = {
   },
 };
 
-export const teamService = {
-  async create(team: Omit<Team, 'id' | 'createdAt'> & { createdAt?: number }) {
-    try {
-      requireField('name', team.name);
-      requireField('createdBy', team.createdBy);
-
-      const teamRef = doc(teamsCollection);
-      const payload = {
-        ...team,
-        id: teamRef.id,
-        members: Array.isArray(team.members) ? team.members : [],
-        createdAt: toTimestamp(team.createdAt),
-      };
-      await setDoc(teamRef, payload);
-      return payload;
-    } catch (error: any) {
-      throw new Error(`teamService.create failed: ${error.message || error}`);
-    }
-  },
-
-  async get(id: string): Promise<Team | null> {
-    try {
-      const snapshot = await getDoc(doc(teamsCollection, id));
-      if (!snapshot.exists()) {
-        return null;
-      }
-      return normalizeTeam(snapshot.data(), id);
-    } catch (error: any) {
-      throw new Error(`teamService.get failed: ${error.message || error}`);
-    }
-  },
-
-  async list(): Promise<Team[]> {
-    try {
-      const snapshot = await getDocs(teamsCollection);
-      return snapshot.docs.map((docSnap) => normalizeTeam(docSnap.data(), docSnap.id));
-    } catch (error: any) {
-      throw new Error(`teamService.list failed: ${error.message || error}`);
-    }
-  },
-
-  async listByMember(userId: string): Promise<Team[]> {
-    try {
-      requireField('userId', userId);
-      const q = query(teamsCollection, where('members', 'array-contains', userId));
-      const snapshot = await getDocs(q);
-      return snapshot.docs.map((docSnap) => normalizeTeam(docSnap.data(), docSnap.id));
-    } catch (error: any) {
-      throw new Error(`teamService.listByMember failed: ${error.message || error}`);
-    }
-  },
-
-  async update(id: string, data: Partial<Team>) {
-    try {
-      const payload = { ...data } as any;
-      if (payload.createdAt) {
-        payload.createdAt = toTimestamp(payload.createdAt);
-      }
-      await updateDoc(doc(teamsCollection, id), payload);
-    } catch (error: any) {
-      throw new Error(`teamService.update failed: ${error.message || error}`);
-    }
-  },
-
-  async remove(id: string) {
-    try {
-      await deleteDoc(doc(teamsCollection, id));
-    } catch (error: any) {
-      throw new Error(`teamService.remove failed: ${error.message || error}`);
-    }
-  },
-};
-
 export const milestoneService = {
-  async create(milestone: Omit<Milestone, 'id' | 'createdAt'> & { createdAt?: number }) {
+  async create(milestone: Omit<Milestone, 'id' | 'createdAt' | 'updatedAt'> & { createdAt?: number; updatedAt?: number }) {
+    return this.upsertActive(milestone);
+  },
+
+  async upsertActive(milestone: Omit<Milestone, 'id' | 'createdAt' | 'updatedAt'> & { createdAt?: number; updatedAt?: number }) {
     try {
       requireField('title', milestone.title);
-      requireField('teamId', milestone.teamId);
       requireField('deadline', milestone.deadline);
+      requireField('createdBy', milestone.createdBy);
+      requireField('createdByName', milestone.createdByName);
 
-      const milestoneRef = doc(milestonesCollection);
+      const milestoneRef = doc(milestonesCollection, ACTIVE_MILESTONE_ID);
+      const existing = await getDoc(milestoneRef);
+      const createdAt = existing.exists()
+        ? toMillis(existing.data().createdAt)
+        : milestone.createdAt || Date.now();
+
       const payload = {
         ...milestone,
-        id: milestoneRef.id,
-        createdAt: toTimestamp(milestone.createdAt),
-        deadline: toTimestamp(milestone.deadline),
+        id: ACTIVE_MILESTONE_ID,
+        status: milestone.status || 'active',
+        progress: typeof milestone.progress === 'number' ? milestone.progress : 0,
+        createdAt: toTimestamp(createdAt),
+        updatedAt: toTimestamp(milestone.updatedAt || Date.now()),
+        deadline: toTimestamp(milestone.deadline, false),
       };
+
       await setDoc(milestoneRef, payload);
       return payload;
     } catch (error: any) {
-      throw new Error(`milestoneService.create failed: ${error.message || error}`);
+      throw new Error(`milestoneService.upsertActive failed: ${error.message || error}`);
     }
   },
 
@@ -284,31 +216,27 @@ export const milestoneService = {
     }
   },
 
+  async getActive(): Promise<Milestone | null> {
+    return this.get(ACTIVE_MILESTONE_ID);
+  },
+
   async list(): Promise<Milestone[]> {
     try {
-      const snapshot = await getDocs(milestonesCollection);
-      return snapshot.docs.map((docSnap) => normalizeMilestone(docSnap.data(), docSnap.id));
+      const active = await this.getActive();
+      return active ? [active] : [];
     } catch (error: any) {
       throw new Error(`milestoneService.list failed: ${error.message || error}`);
     }
   },
 
-  async listByTeam(teamId: string): Promise<Milestone[]> {
-    try {
-      requireField('teamId', teamId);
-      const q = query(milestonesCollection, where('teamId', '==', teamId));
-      const snapshot = await getDocs(q);
-      return snapshot.docs.map((docSnap) => normalizeMilestone(docSnap.data(), docSnap.id));
-    } catch (error: any) {
-      throw new Error(`milestoneService.listByTeam failed: ${error.message || error}`);
-    }
-  },
-
   async update(id: string, data: Partial<Milestone>) {
     try {
-      const payload = { ...data } as any;
+      const payload = { ...data, updatedAt: Date.now() } as any;
       if (payload.createdAt) {
         payload.createdAt = toTimestamp(payload.createdAt);
+      }
+      if (payload.updatedAt) {
+        payload.updatedAt = toTimestamp(payload.updatedAt, false);
       }
       if (payload.deadline) {
         payload.deadline = toTimestamp(payload.deadline, false);
@@ -332,9 +260,7 @@ export const taskService = {
   async create(task: Omit<Task, 'id' | 'createdAt'> & { createdAt?: number }) {
     try {
       requireField('title', task.title);
-      requireField('teamId', task.teamId);
       requireField('milestoneId', task.milestoneId);
-      requireField('assignedTo', task.assignedTo);
       requireField('assignedByName', task.assignedByName);
       requireField('assignedByRole', task.assignedByRole);
       requireField('priority', task.priority);
@@ -344,10 +270,20 @@ export const taskService = {
       requireField('createdByRole', task.createdByRole);
       requireField('dueAt', task.dueAt);
 
+      const assignedUserIds = Array.isArray(task.assignedUserIds)
+        ? task.assignedUserIds.filter(Boolean)
+        : [];
+
+      if (assignedUserIds.length === 0 && !task.assignedRole) {
+        throw new Error('Task must be assigned to at least one user or one role');
+      }
+
       const taskRef = doc(tasksCollection);
       const payload = {
         ...task,
         id: taskRef.id,
+        assignedUserIds,
+        assignedRole: task.assignedRole || null,
         createdAt: toTimestamp(task.createdAt),
         dueAt: toTimestamp(task.dueAt),
       };
@@ -379,17 +315,6 @@ export const taskService = {
     }
   },
 
-  async listByTeam(teamId: string): Promise<Task[]> {
-    try {
-      requireField('teamId', teamId);
-      const q = query(tasksCollection, where('teamId', '==', teamId));
-      const snapshot = await getDocs(q);
-      return snapshot.docs.map((docSnap) => normalizeTask(docSnap.data(), docSnap.id));
-    } catch (error: any) {
-      throw new Error(`taskService.listByTeam failed: ${error.message || error}`);
-    }
-  },
-
   async listByMilestone(milestoneId: string): Promise<Task[]> {
     try {
       requireField('milestoneId', milestoneId);
@@ -404,11 +329,22 @@ export const taskService = {
   async listByAssignee(assigneeId: string): Promise<Task[]> {
     try {
       requireField('assigneeId', assigneeId);
-      const q = query(tasksCollection, where('assignedTo', '==', assigneeId));
+      const q = query(tasksCollection, where('assignedUserIds', 'array-contains', assigneeId));
       const snapshot = await getDocs(q);
       return snapshot.docs.map((docSnap) => normalizeTask(docSnap.data(), docSnap.id));
     } catch (error: any) {
       throw new Error(`taskService.listByAssignee failed: ${error.message || error}`);
+    }
+  },
+
+  async listByAssignedRole(role: UserRole): Promise<Task[]> {
+    try {
+      requireField('role', role);
+      const q = query(tasksCollection, where('assignedRole', '==', role));
+      const snapshot = await getDocs(q);
+      return snapshot.docs.map((docSnap) => normalizeTask(docSnap.data(), docSnap.id));
+    } catch (error: any) {
+      throw new Error(`taskService.listByAssignedRole failed: ${error.message || error}`);
     }
   },
 
@@ -420,6 +356,9 @@ export const taskService = {
       }
       if (payload.dueAt) {
         payload.dueAt = toTimestamp(payload.dueAt, false);
+      }
+      if (payload.assignedUserIds && Array.isArray(payload.assignedUserIds)) {
+        payload.assignedUserIds = payload.assignedUserIds.filter(Boolean);
       }
       await updateDoc(doc(tasksCollection, id), payload);
     } catch (error: any) {

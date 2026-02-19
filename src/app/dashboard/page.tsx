@@ -52,11 +52,11 @@ export default function DashboardPage() {
             </p>
           </div>
 
-          {/* Card: Team Info */}
+          {/* Card: Access Scope */}
           <div className="bg-white rounded-lg border border-slate-200 p-6 shadow-sm">
-            <p className="text-slate-600 text-sm font-medium mb-2">Team</p>
+            <p className="text-slate-600 text-sm font-medium mb-2">Scope</p>
             <p className="text-2xl font-semibold text-slate-900">
-              {user.teamId ? user.teamId.substring(0, 8) + '...' : 'Global'}
+              Global Roles
             </p>
           </div>
         </div>
@@ -64,7 +64,7 @@ export default function DashboardPage() {
         <div className="bg-white rounded-lg border border-slate-200 p-8 text-center shadow-sm">
           <h2 className="text-lg font-semibold text-slate-900 mb-2">Overview</h2>
           <p className="text-slate-500">
-            Your live progress metrics will appear here as teams and tasks are added.
+            Your live progress metrics will appear here as milestones and tasks are added.
           </p>
         </div>
       </div>

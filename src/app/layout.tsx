@@ -3,8 +3,8 @@ import { AuthProvider } from '@/contexts/AuthContext';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Arctic Manage - Team Management System',
-  description: 'Internal team management and task tracking system',
+  title: 'Arctic Manage - Role Management System',
+  description: 'Internal role-based management and task tracking system',
   icons: {
     icon: [
       {

@@ -3,7 +3,7 @@
 import React, { useMemo, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouter, usePathname } from 'next/navigation';
-import { Menu, X, LogOut, Home, Users, ClipboardList, BarChart3, Settings, ListChecks } from 'lucide-react';
+import { Menu, X, LogOut, Home, Users, BarChart3, Settings, ListChecks } from 'lucide-react';
 
 interface SidebarProps {
   variant?: 'desktop' | 'mobile';
@@ -32,7 +32,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ variant = 'desktop', isOpen: m
     { label: 'Dashboard', href: '/dashboard', icon: Home, roles: ['super_admin', 'admin', 'developer', 'staff', 'trial_staff'] },
     { label: 'Tasks', href: '/tasks', icon: ListChecks, roles: ['super_admin', 'admin', 'developer', 'staff', 'trial_staff'] },
     { label: 'Users', href: '/users', icon: Users, roles: ['super_admin', 'admin', 'developer', 'staff'] },
-    { label: 'Teams', href: '/teams', icon: ClipboardList, roles: ['super_admin', 'admin'] },
     { label: 'Milestones', href: '/milestones', icon: BarChart3, roles: ['super_admin', 'admin', 'developer', 'staff', 'trial_staff'] },
     { label: 'Settings', href: '/settings', icon: Settings, roles: ['super_admin', 'admin', 'developer', 'staff', 'trial_staff'] },
   ];

@@ -7,27 +7,20 @@ export interface User {
   email: string;
   displayName?: string;
   role: UserRole;
-  teamId?: string | null;
   status: UserStatus;
-  createdAt: number;
-}
-
-export interface Team {
-  id: string;
-  name: string;
-  createdBy: string;
-  members: string[];
   createdAt: number;
 }
 
 export interface Milestone {
   id: string;
   title: string;
-  teamId: string;
   deadline: number;
-  status: 'pending' | 'completed';
+  status: 'active' | 'completed';
   progress: number;
+  createdBy: string;
+  createdByName: string;
   createdAt: number;
+  updatedAt: number;
 }
 
 export interface Task {
@@ -35,8 +28,8 @@ export interface Task {
   title: string;
   description: string;
   milestoneId: string;
-  teamId: string;
-  assignedTo: string | 'team';
+  assignedUserIds: string[];
+  assignedRole?: UserRole | null;
   assignedById?: string | null;
   assignedByName: string;
   assignedByRole: UserRole;

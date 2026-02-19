@@ -70,7 +70,6 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({
           email: firebaseUser.email || '',
           displayName: data.displayName,
           role: data.role,
-          teamId: data.teamId || null,
           status: data.status,
           createdAt: data.createdAt?.toMillis?.() || Date.now(),
         };
@@ -86,7 +85,6 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({
           email: firebaseUser.email,
           displayName: 'Super Admin',
           role: 'super_admin',
-          teamId: null,
           status: 'active',
           createdAt: Timestamp.now(),
         };
@@ -99,7 +97,6 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({
           email: firebaseUser.email || '',
           displayName: superAdminData.displayName,
           role: superAdminData.role as 'super_admin',
-          teamId: null,
           status: 'active',
           createdAt: Date.now(),
         };
@@ -208,7 +205,6 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({
         email: email,
         displayName: displayName,
         role: requestedRole,
-        teamId: null,
         status: 'active',
         createdAt: Timestamp.now(),
       };
@@ -261,7 +257,6 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({
         email: email,
         displayName: displayName,
         role: role,
-        teamId: null,
         status: 'active',
         createdAt: Timestamp.now(),
       };
