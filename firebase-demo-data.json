@@ -1,0 +1,22 @@
+{
+  "users": {
+    "demo_super_admin": {
+      "uid": "demo_super_admin",
+      "email": "demo@arctic.com",
+      "displayName": "Arctic Admin",
+      "role": "super_admin",
+      "teamId": null,
+      "status": "active",
+      "createdAt": 1708329600000
+    }
+  },
+  "teams": {
+    "team-dev": {
+      "id": "team-dev",
+      "name": "Development Team",
+      "createdBy": "demo_super_admin",
+      "members": ["demo_super_admin"],
+      "createdAt": 1708329600000
+    }
+  }
+}
